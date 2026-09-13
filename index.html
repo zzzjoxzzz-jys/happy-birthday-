@@ -59,6 +59,103 @@
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js"></script>
 
+  <!-- Firebase SDK 모듈 -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, collection, onSnapshot, addDoc, updateDoc, increment } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // Firestore & 전역 인증 설정
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'birthday-sunji-41';
+    const firebaseConfig = typeof __firebase_config !== 'undefined' 
+      ? JSON.parse(__firebase_config) 
+      : {
+          apiKey: "AIzaSyDummyKeyForFallbackOnly",
+          authDomain: "birthday-sunji.firebaseapp.com",
+          projectId: "birthday-sunji",
+          storageBucket: "birthday-sunji.appspot.com"
+        };
+
+    let app, db, auth, currentUser = null;
+
+    try {
+      app = initializeApp(firebaseConfig);
+      db = getFirestore(app);
+      auth = getAuth(app);
+
+      async function initAuth() {
+        try {
+          if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+            await signInWithCustomToken(auth, __initial_auth_token);
+          } else {
+            await signInAnonymously(auth);
+          }
+          currentUser = auth.currentUser;
+          initRealtimeSync();
+        } catch (authErr) {
+          console.warn("Auth initialization error, falling back to anonymous or offline mode:", authErr);
+        }
+      }
+
+      initAuth();
+    } catch (e) {
+      console.warn("Firebase initialize error:", e);
+    }
+
+    function initRealtimeSync() {
+      if (!db) return;
+      const messagesCollection = collection(db, 'artifacts', appId, 'public', 'data', 'messages');
+
+      onSnapshot(messagesCollection, (snapshot) => {
+        const cloudMessages = [];
+        snapshot.forEach((docSnap) => {
+          cloudMessages.push({
+            id: docSnap.id,
+            ...docSnap.data()
+          });
+        });
+        window.updateMessagesFromCloud(cloudMessages);
+      }, (error) => {
+        console.error("Realtime sync error:", error);
+      });
+    }
+
+    window.saveMessageToCloud = async function(msgData) {
+      if (!db || !auth.currentUser) {
+        return false;
+      }
+      try {
+        const messagesCollection = collection(db, 'artifacts', appId, 'public', 'data', 'messages');
+        await addDoc(messagesCollection, {
+          sender: msgData.sender,
+          category: msgData.category,
+          theme: msgData.theme,
+          sticker: msgData.sticker,
+          content: msgData.content,
+          likes: 0,
+          createdAt: msgData.createdAt,
+          timestamp: Date.now()
+        });
+        return true;
+      } catch (err) {
+        console.error("Failed to save message to cloud:", err);
+        return false;
+      }
+    };
+
+    window.toggleLikeInCloud = async function(docId) {
+      if (!db || !auth.currentUser) return;
+      try {
+        const messageDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'messages', docId);
+        await updateDoc(messageDocRef, {
+          likes: increment(1)
+        });
+      } catch (err) {
+        console.error("Failed to update like in cloud:", err);
+      }
+    };
+  </script>
+
   <style>
     body {
       font-family: 'Pretendard', sans-serif;
@@ -602,6 +699,19 @@
 
     let messages = [...initialMessages];
 
+    // Cloud Data Sync Handler
+    window.updateMessagesFromCloud = function(cloudMessages) {
+      if (Array.isArray(cloudMessages)) {
+        // Retain local liked status if any
+        const likedIds = new Set(messages.filter(m => m.liked).map(m => m.id));
+        messages = cloudMessages.map(m => ({
+          ...m,
+          liked: likedIds.has(m.id)
+        }));
+        renderMessages();
+      }
+    };
+
     // Helper: Escape HTML to avoid XSS
     function escapeHtml(str) {
       const div = document.createElement('div');
@@ -831,12 +941,16 @@
       const msg = messages.find(m => m.id === id);
       if (!msg) return;
       if (msg.liked) {
-        msg.likes--;
+        msg.likes = Math.max(0, msg.likes - 1);
         msg.liked = false;
       } else {
         msg.likes++;
         msg.liked = true;
         showToast('하트를 전했습니다! ❤️', '💖');
+        // Sync like increment to cloud if connected
+        if (typeof window.toggleLikeInCloud === 'function') {
+          window.toggleLikeInCloud(id);
+        }
       }
       renderMessages();
     }
@@ -865,17 +979,7 @@
             btn.classList.remove('border-stone-200');
           } else {
             btn.classList.remove('border-2', 'border-blush-400');
-            btn.classList.add('border-stone-200');
-          }
-        }
-      });
-    }
-
-    function updateCharCount(el) {
-      document.getElementById('charCount').innerText = `${el.value.length} / 400자`;
-    }
-
-    function handleMessageSubmit(e) {
+    async function handleMessageSubmit(e) {
       e.preventDefault();
       const sender = document.getElementById('senderInput').value.trim();
       const category = document.getElementById('categoryInput').value;
@@ -900,8 +1004,19 @@
         createdAt: getNowFormatted()
       };
 
-      messages.unshift(newMsg);
-      renderMessages();
+      // Try saving to cloud realtime database
+      if (typeof window.saveMessageToCloud === 'function') {
+        const saved = await window.saveMessageToCloud(newMsg);
+        if (!saved) {
+          // Fallback to local memory if offline
+          messages.unshift(newMsg);
+          renderMessages();
+        }
+      } else {
+        messages.unshift(newMsg);
+        renderMessages();
+      }
+
       closeWriteModal();
       showToast(`축하 메시지가 등록되었습니다!`, '💌');
       triggerConfettiSpray();
