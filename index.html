@@ -63,7 +63,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, collection, onSnapshot, addDoc, updateDoc, increment } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getFirestore, doc, collection, onSnapshot, addDoc, updateDoc, increment, deleteDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     // Firestore & 전역 인증 설정
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'birthday-sunji-41';
@@ -91,9 +91,11 @@
             await signInAnonymously(auth);
           }
           currentUser = auth.currentUser;
-          initRealtimeSync();
+          if (currentUser) {
+            initRealtimeSync();
+          }
         } catch (authErr) {
-          console.warn("Auth initialization error, falling back to anonymous or offline mode:", authErr);
+          console.warn("Auth initialization error, offline fallback active:", authErr);
         }
       }
 
@@ -103,7 +105,7 @@
     }
 
     function initRealtimeSync() {
-      if (!db) return;
+      if (!db || !auth.currentUser) return;
       const messagesCollection = collection(db, 'artifacts', appId, 'public', 'data', 'messages');
 
       onSnapshot(messagesCollection, (snapshot) => {
@@ -121,7 +123,7 @@
     }
 
     window.saveMessageToCloud = async function(msgData) {
-      if (!db || !auth.currentUser) {
+      if (!db || !auth || !auth.currentUser) {
         return false;
       }
       try {
@@ -144,7 +146,7 @@
     };
 
     window.toggleLikeInCloud = async function(docId) {
-      if (!db || !auth.currentUser) return;
+      if (!db || !auth || !auth.currentUser) return;
       try {
         const messageDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'messages', docId);
         await updateDoc(messageDocRef, {
@@ -152,6 +154,37 @@
         });
       } catch (err) {
         console.error("Failed to update like in cloud:", err);
+      }
+    };
+
+    // 개별 메시지 삭제 클라우드 연동
+    window.deleteMessageFromCloud = async function(docId) {
+      if (!db || !auth || !auth.currentUser) return false;
+      try {
+        const messageDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'messages', docId);
+        await deleteDoc(messageDocRef);
+        return true;
+      } catch (err) {
+        console.error("Failed to delete message from cloud:", err);
+        return false;
+      }
+    };
+
+    // 모든 메시지 전체 삭제 클라우드 연동
+    window.deleteAllMessagesFromCloud = async function() {
+      if (!db || !auth || !auth.currentUser) return false;
+      try {
+        const messagesCollection = collection(db, 'artifacts', appId, 'public', 'data', 'messages');
+        const snapshot = await getDocs(messagesCollection);
+        const deletePromises = [];
+        snapshot.forEach((docSnap) => {
+          deletePromises.push(deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'messages', docSnap.id)));
+        });
+        await Promise.all(deletePromises);
+        return true;
+      } catch (err) {
+        console.error("Failed to delete all messages from cloud:", err);
+        return false;
       }
     };
   </script>
@@ -405,6 +438,11 @@
           <option value="likes">하트 많은 순</option>
         </select>
 
+        <button onclick="confirmDeleteAll()" class="px-3 py-1.5 rounded-full bg-white hover:bg-rose-50 text-rose-500 border border-rose-200 text-xs font-semibold shadow-xs flex items-center space-x-1 transition-all" title="작성된 모든 편지 전체 삭제">
+          <i class="fa-regular fa-trash-can text-[11px]"></i>
+          <span class="hidden sm:inline">전체 삭제</span>
+        </button>
+
         <button onclick="openWriteModal()" class="hidden sm:inline-flex px-3.5 py-1.5 rounded-full bg-plum-800 hover:bg-plum-900 text-white text-xs font-semibold shadow-xs items-center space-x-1.5 transition-all">
           <i class="fa-solid fa-plus text-[10px]"></i>
           <span>새 편지 작성</span>
@@ -598,9 +636,36 @@
           <span id="readModalSender" class="font-bold text-plum-900">작성자</span>
           <span id="readModalDate" class="text-[10px] text-stone-400 ml-2">날짜</span>
         </div>
-        <button id="readModalLikeBtn" onclick="toggleReadModalLike()" class="flex items-center space-x-1.5 px-3 py-1 rounded-full bg-white/80 border border-rose-200 hover:bg-rose-50 text-blush-500 transition-colors shadow-xs">
-          <i class="fa-solid fa-heart text-xs"></i>
-          <span id="readModalLikesCount" class="font-bold">0</span>
+        <div class="flex items-center space-x-2">
+          <button onclick="requestDeleteFromReadModal()" class="flex items-center space-x-1 px-3 py-1 rounded-full bg-white/80 border border-rose-200 hover:bg-rose-50 text-rose-500 transition-colors shadow-xs" title="이 축하 편지 삭제">
+            <i class="fa-regular fa-trash-can text-xs"></i>
+            <span class="text-[11px] font-semibold">삭제</span>
+          </button>
+          <button id="readModalLikeBtn" onclick="toggleReadModalLike()" class="flex items-center space-x-1.5 px-3 py-1 rounded-full bg-white/80 border border-rose-200 hover:bg-rose-50 text-blush-500 transition-colors shadow-xs">
+            <i class="fa-solid fa-heart text-xs"></i>
+            <span id="readModalLikesCount" class="font-bold">0</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 삭제 확인 모달 (안전한 커스텀 UI) -->
+  <div id="deleteModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+    <div class="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden border border-rose-100 flex flex-col p-6 text-center animate-fade-in">
+      <div class="w-12 h-12 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center mx-auto text-xl mb-3 shadow-xs">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+      </div>
+      <h3 id="deleteModalTitle" class="text-sm font-bold text-plum-900 mb-1">편지를 삭제하시겠습니까?</h3>
+      <p id="deleteModalDesc" class="text-xs text-stone-500 mb-5 leading-relaxed">
+        삭제된 메시지는 복구할 수 없습니다. 계속 진행하시겠습니까?
+      </p>
+      <div class="flex items-center justify-center space-x-2.5">
+        <button onclick="closeDeleteModal()" class="flex-1 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-600 text-xs font-semibold transition-colors">
+          취소
+        </button>
+        <button id="deleteConfirmBtn" onclick="executeDeleteAction()" class="flex-1 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-semibold shadow-md transition-colors">
+          삭제하기
         </button>
       </div>
     </div>
@@ -693,6 +758,7 @@
     let isAudioPlaying = false;
     let audioSynth = null;
     let activeReadingMessageId = null;
+    let pendingDeleteTarget = null; // 'all' 또는 message id
 
     // Empty initial messages so real guests can write fresh ones
     const initialMessages = [];
@@ -790,7 +856,12 @@
                 <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white/80 text-stone-600 border border-stone-200 shadow-2xs">
                   ${escapeHtml(msg.category)}
                 </span>
-                <span class="text-xl select-none">${msg.sticker}</span>
+                <div class="flex items-center space-x-2">
+                  <span class="text-xl select-none">${msg.sticker}</span>
+                  <button onclick="confirmDeleteSingle('${msg.id}')" class="delete-btn opacity-60 hover:opacity-100 hover:text-rose-500 text-stone-400 p-1 transition-all" title="편지 삭제">
+                    <i class="fa-regular fa-trash-can text-xs"></i>
+                  </button>
+                </div>
               </div>
               <p class="text-xs text-stone-700 leading-relaxed line-clamp-4 font-normal mb-4 whitespace-pre-line">
                 ${escapeHtml(msg.content)}
@@ -979,6 +1050,12 @@
             btn.classList.remove('border-stone-200');
           } else {
             btn.classList.remove('border-2', 'border-blush-400');
+            btn.classList.add('border-stone-200');
+          }
+        }
+      });
+    }
+
     async function handleMessageSubmit(e) {
       e.preventDefault();
       const sender = document.getElementById('senderInput').value.trim();
@@ -1046,6 +1123,67 @@
       document.getElementById('readModal').classList.add('hidden');
       document.body.style.overflow = '';
       activeReadingMessageId = null;
+    }
+
+    // 삭제 모달 처리 로직
+    function confirmDeleteSingle(id) {
+      pendingDeleteTarget = id;
+      document.getElementById('deleteModalTitle').innerText = '축하 편지를 삭제할까요?';
+      document.getElementById('deleteModalDesc').innerText = '삭제된 편지는 되돌릴 수 없습니다. 정말 삭제하시겠습니까?';
+      document.getElementById('deleteConfirmBtn').innerText = '삭제하기';
+      document.getElementById('deleteModal').classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function confirmDeleteAll() {
+      if (messages.length === 0) {
+        showToast('삭제할 편지가 없습니다.', 'ℹ️');
+        return;
+      }
+      pendingDeleteTarget = 'all';
+      document.getElementById('deleteModalTitle').innerText = '모든 축하 편지를 전체 삭제할까요?';
+      document.getElementById('deleteModalDesc').innerText = `현재 등록된 총 ${messages.length}개의 모든 편지가 영구히 삭제됩니다. 정말 삭제하시겠습니까?`;
+      document.getElementById('deleteConfirmBtn').innerText = '전체 삭제하기';
+      document.getElementById('deleteModal').classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeDeleteModal() {
+      document.getElementById('deleteModal').classList.add('hidden');
+      document.body.style.overflow = '';
+      pendingDeleteTarget = null;
+    }
+
+    function requestDeleteFromReadModal() {
+      if (!activeReadingMessageId) return;
+      const targetId = activeReadingMessageId;
+      closeReadModal();
+      confirmDeleteSingle(targetId);
+    }
+
+    async function executeDeleteAction() {
+      if (!pendingDeleteTarget) return;
+
+      if (pendingDeleteTarget === 'all') {
+        // 전체 삭제 실행
+        if (typeof window.deleteAllMessagesFromCloud === 'function') {
+          await window.deleteAllMessagesFromCloud();
+        }
+        messages = [];
+        renderMessages();
+        closeDeleteModal();
+        showToast('모든 축하 편지가 삭제되었습니다.', '🗑️');
+      } else {
+        // 개별 메시지 삭제 실행
+        const targetId = pendingDeleteTarget;
+        if (typeof window.deleteMessageFromCloud === 'function') {
+          await window.deleteMessageFromCloud(targetId);
+        }
+        messages = messages.filter(m => m.id !== targetId);
+        renderMessages();
+        closeDeleteModal();
+        showToast('축하 편지가 삭제되었습니다.', '🗑️');
+      }
     }
 
     function toggleReadModalLike() {
@@ -1151,16 +1289,18 @@
         closeWriteModal();
         closeReadModal();
         closeProfileModal();
+        closeDeleteModal();
       }
     });
 
-    ['writeModal', 'readModal', 'profileModal'].forEach(id => {
+    ['writeModal', 'readModal', 'profileModal', 'deleteModal'].forEach(id => {
       const modal = document.getElementById(id);
       if (modal) {
         modal.addEventListener('click', (e) => {
           if (e.target === modal) {
             modal.classList.add('hidden');
             document.body.style.overflow = '';
+            if (id === 'deleteModal') pendingDeleteTarget = null;
           }
         });
       }
