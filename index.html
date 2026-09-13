@@ -59,135 +59,10 @@
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js"></script>
 
-  <!-- Firebase SDK 모듈 -->
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, collection, onSnapshot, addDoc, updateDoc, increment, deleteDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-    // Firestore & 전역 인증 설정
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'birthday-sunji-41';
-    const firebaseConfig = typeof __firebase_config !== 'undefined' 
-      ? JSON.parse(__firebase_config) 
-      : {
-          apiKey: "AIzaSyDummyKeyForFallbackOnly",
-          authDomain: "birthday-sunji.firebaseapp.com",
-          projectId: "birthday-sunji",
-          storageBucket: "birthday-sunji.appspot.com"
-        };
-
-    let app, db, auth, currentUser = null;
-
-    try {
-      app = initializeApp(firebaseConfig);
-      db = getFirestore(app);
-      auth = getAuth(app);
-
-      async function initAuth() {
-        try {
-          if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-            await signInWithCustomToken(auth, __initial_auth_token);
-          } else {
-            await signInAnonymously(auth);
-          }
-          currentUser = auth.currentUser;
-          if (currentUser) {
-            initRealtimeSync();
-          }
-        } catch (authErr) {
-          console.warn("Auth initialization error, offline fallback active:", authErr);
-        }
-      }
-
-      initAuth();
-    } catch (e) {
-      console.warn("Firebase initialize error:", e);
-    }
-
-    function initRealtimeSync() {
-      if (!db || !auth.currentUser) return;
-      const messagesCollection = collection(db, 'artifacts', appId, 'public', 'data', 'messages');
-
-      onSnapshot(messagesCollection, (snapshot) => {
-        const cloudMessages = [];
-        snapshot.forEach((docSnap) => {
-          cloudMessages.push({
-            id: docSnap.id,
-            ...docSnap.data()
-          });
-        });
-        window.updateMessagesFromCloud(cloudMessages);
-      }, (error) => {
-        console.error("Realtime sync error:", error);
-      });
-    }
-
-    window.saveMessageToCloud = async function(msgData) {
-      if (!db || !auth || !auth.currentUser) {
-        return false;
-      }
-      try {
-        const messagesCollection = collection(db, 'artifacts', appId, 'public', 'data', 'messages');
-        await addDoc(messagesCollection, {
-          sender: msgData.sender,
-          category: msgData.category,
-          theme: msgData.theme,
-          sticker: msgData.sticker,
-          content: msgData.content,
-          likes: 0,
-          createdAt: msgData.createdAt,
-          timestamp: Date.now()
-        });
-        return true;
-      } catch (err) {
-        console.error("Failed to save message to cloud:", err);
-        return false;
-      }
-    };
-
-    window.toggleLikeInCloud = async function(docId) {
-      if (!db || !auth || !auth.currentUser) return;
-      try {
-        const messageDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'messages', docId);
-        await updateDoc(messageDocRef, {
-          likes: increment(1)
-        });
-      } catch (err) {
-        console.error("Failed to update like in cloud:", err);
-      }
-    };
-
-    // 개별 메시지 삭제 클라우드 연동
-    window.deleteMessageFromCloud = async function(docId) {
-      if (!db || !auth || !auth.currentUser) return false;
-      try {
-        const messageDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'messages', docId);
-        await deleteDoc(messageDocRef);
-        return true;
-      } catch (err) {
-        console.error("Failed to delete message from cloud:", err);
-        return false;
-      }
-    };
-
-    // 모든 메시지 전체 삭제 클라우드 연동
-    window.deleteAllMessagesFromCloud = async function() {
-      if (!db || !auth || !auth.currentUser) return false;
-      try {
-        const messagesCollection = collection(db, 'artifacts', appId, 'public', 'data', 'messages');
-        const snapshot = await getDocs(messagesCollection);
-        const deletePromises = [];
-        snapshot.forEach((docSnap) => {
-          deletePromises.push(deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'messages', docSnap.id)));
-        });
-        await Promise.all(deletePromises);
-        return true;
-      } catch (err) {
-        console.error("Failed to delete all messages from cloud:", err);
-        return false;
-      }
-    };
-  </script>
+  <!-- Firebase SDK (안정적인 호환 버전 CDN) -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <style>
     body {
@@ -202,7 +77,6 @@
       font-family: 'Noto Serif KR', serif;
     }
 
-    /* Candle flame animation */
     @keyframes flicker {
       0%, 100% { transform: scale(1) rotate(-1deg); opacity: 0.95; }
       25% { transform: scale(1.08, 1.15) rotate(2deg); opacity: 1; }
@@ -216,17 +90,6 @@
       filter: drop-shadow(0 0 8px rgba(251, 146, 60, 0.9)) drop-shadow(0 0 16px rgba(239, 68, 68, 0.6));
     }
 
-    /* Floating subtle effect */
-    @keyframes gentleFloat {
-      0%, 100% { transform: translateY(0px); }
-      50% { transform: translateY(-6px); }
-    }
-
-    .gentle-float {
-      animation: gentleFloat 4s ease-in-out infinite;
-    }
-
-    /* Custom card styles */
     .theme-blush {
       background: linear-gradient(145deg, #ffffff 0%, #fff0f3 100%);
       border: 1px solid #ffd8e0;
@@ -248,14 +111,12 @@
       border: 1px solid #d4e8ff;
     }
 
-    /* Glass effect */
     .glass-nav {
-      background: rgba(255, 255, 255, 0.85);
+      background: rgba(255, 255, 255, 0.88);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
     }
 
-    /* Custom scrollbar */
     ::-webkit-scrollbar {
       width: 6px;
       height: 6px;
@@ -271,9 +132,21 @@
 </head>
 <body class="selection:bg-blush-200 selection:text-plum-900 pb-24">
 
+  <!-- Firebase 설정 가이드 알림 배너 (DB 설정 전일 때만 자동 노출) -->
+  <div id="setupAlertBanner" class="hidden bg-amber-50 border-b border-amber-200 px-4 py-2.5 text-xs text-amber-900">
+    <div class="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+      <div class="flex items-center space-x-2">
+        <span class="text-amber-500 font-bold">⚠️</span>
+        <span><strong>실시간 클라우드 DB 연결 필요:</strong> 현재는 브라우저 로컬 저장 모드입니다. 다른 사람과 실시간 공유하려면 무료 Firebase 키를 입력해 주세요.</span>
+      </div>
+      <button onclick="openConfigModal()" class="px-3 py-1 bg-amber-200 hover:bg-amber-300 font-semibold rounded-lg text-[11px] transition-colors whitespace-nowrap">
+        설정 방법 보기
+      </button>
+    </div>
+  </div>
+
   <nav class="sticky top-0 z-40 w-full glass-nav border-b border-rose-100/70 shadow-xs">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-      <!-- Title & Branding -->
       <div class="flex items-center space-x-3">
         <span class="w-9 h-9 rounded-full bg-blush-100 text-blush-500 flex items-center justify-center text-lg shadow-inner">
           <i class="fa-solid fa-cake-candles"></i>
@@ -282,13 +155,15 @@
           <h1 id="headerMainTitle" class="font-serif-title font-bold text-lg sm:text-xl tracking-tight text-plum-900 leading-tight">
             장선지님의 41번째 생일 롤링페이퍼
           </h1>
-          <p class="text-[11px] text-stone-500 font-medium">따뜻한 마음과 축하를 남겨주세요 ✨</p>
+          <p id="cloudStatusIndicator" class="text-[11px] text-stone-500 font-medium flex items-center gap-1.5">
+            <span id="statusText">동기화 준비 완료</span>
+            <span id="statusDot" class="w-2 h-2 rounded-full bg-stone-400"></span>
+          </p>
         </div>
       </div>
 
-      <!-- Action Buttons -->
       <div class="flex items-center space-x-2">
-        <button onclick="openProfileModal()" class="px-3 py-1.5 rounded-full text-xs font-semibold bg-white hover:bg-rose-50 text-plum-800 border border-rose-200 shadow-xs flex items-center space-x-1.5 transition-all" title="생일자 정보 변경하기">
+        <button onclick="openProfileModal()" class="px-3 py-1.5 rounded-full text-xs font-semibold bg-white hover:bg-rose-50 text-plum-800 border border-rose-200 shadow-xs flex items-center space-x-1.5 transition-all">
           <i class="fa-solid fa-user-pen text-blush-500"></i>
           <span class="hidden sm:inline">주인공 정보 변경</span>
         </button>
@@ -306,12 +181,10 @@
   <header class="relative max-w-6xl mx-auto px-4 sm:px-6 pt-8 pb-10">
     <div class="bg-gradient-to-br from-white/90 via-rose-50/50 to-champagne-50/60 rounded-3xl p-6 sm:p-10 border border-rose-200/70 shadow-xl relative overflow-hidden backdrop-blur-md">
       
-      <!-- Decorative background blur circles -->
       <div class="absolute -right-16 -top-16 w-64 h-64 bg-blush-200/30 rounded-full blur-3xl pointer-events-none"></div>
       <div class="absolute -left-16 -bottom-16 w-64 h-64 bg-champagne-300/25 rounded-full blur-3xl pointer-events-none"></div>
 
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center relative z-10">
-        <!-- Left: Celebration Story & Recipient -->
         <div class="lg:col-span-8 text-center lg:text-left">
           <div class="inline-flex items-center space-x-2 px-3.5 py-1 rounded-full bg-white/95 border border-rose-100 shadow-xs text-xs font-medium text-blush-500 mb-4">
             <span id="heroBadgeText">✨ The Brilliant 40s</span>
@@ -331,7 +204,6 @@
             더욱 찬란하고 아름답게 펼쳐질 41번째 생일과 앞으로의 모든 여정을 온 마음을 다해 응원합니다.
           </p>
 
-          <!-- Metrics summary pills -->
           <div class="flex flex-wrap items-center justify-center lg:justify-start gap-3">
             <div class="px-4 py-2 bg-white/90 rounded-2xl border border-rose-100/80 shadow-xs flex items-center space-x-2">
               <span class="text-blush-400"><i class="fa-solid fa-envelope-open-text"></i></span>
@@ -350,27 +222,20 @@
           </div>
         </div>
 
-        <!-- Right: Interactive Birthday Cake -->
         <div class="lg:col-span-4 flex flex-col items-center justify-center">
           <div class="relative bg-white/80 p-6 rounded-3xl border border-rose-100/80 shadow-lg flex flex-col items-center text-center w-full max-w-[280px]">
-            
             <div class="absolute -top-3 px-3 py-0.5 rounded-full bg-champagne-100 text-champagne-500 text-[11px] font-bold border border-champagne-300 shadow-xs">
               <span id="cakeAgeBadge">41st Anniversary</span>
             </div>
 
-            <!-- Cake Illustration with clickable Candle -->
             <div onclick="toggleCandle()" class="cursor-pointer group relative my-3 p-4 flex flex-col items-center select-none" title="초를 클릭해 불을 끄고 소원을 빌어보세요!">
-              
-              <!-- Candle Flame -->
               <div id="candleFlame" class="candle-flame w-5 h-7 rounded-full bg-gradient-to-t from-orange-500 via-amber-300 to-yellow-100 mb-1 shadow-md transition-all duration-500"></div>
 
-              <!-- Candle Stick -->
               <div class="w-3.5 h-12 bg-gradient-to-r from-rose-200 via-blush-300 to-rose-200 rounded-t-sm border border-rose-300 shadow-inner relative">
                 <div class="absolute top-2 left-0 right-0 h-1 bg-white/60"></div>
                 <div class="absolute top-6 left-0 right-0 h-1 bg-white/60"></div>
               </div>
 
-              <!-- Cake Tiers -->
               <div class="w-28 h-7 bg-gradient-to-r from-rose-100 via-white to-rose-100 rounded-t-xl border border-rose-200 shadow-xs flex items-center justify-center space-x-1 -mt-1">
                 <span class="text-xs text-blush-400">🍓</span>
                 <span class="text-xs text-champagne-400">✨</span>
@@ -382,7 +247,6 @@
               <div class="w-44 h-2.5 bg-stone-200 rounded-full shadow-md mt-1 opacity-70"></div>
             </div>
 
-            <!-- Candle Status & Interaction -->
             <div id="candleStatusBox" class="text-center mt-1">
               <p id="candleStatusText" class="text-xs font-bold text-plum-900 mb-1">
                 🔥 촛불이 켜져 있어요!
@@ -401,7 +265,6 @@
   <main class="max-w-6xl mx-auto px-4 sm:px-6">
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
       
-      <!-- Categories Filter -->
       <div class="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none">
         <button onclick="setCategory('all')" id="tab-all" class="category-tab px-3.5 py-1.5 rounded-full text-xs font-semibold bg-plum-900 text-white shadow-xs transition-all">
           전체보기 (<span id="count-all">0</span>)
@@ -420,7 +283,6 @@
         </button>
       </div>
 
-      <!-- Search & Sort Controls -->
       <div class="flex items-center space-x-2">
         <div class="relative flex-1 sm:w-56">
           <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs"></i>
@@ -451,10 +313,9 @@
     </div>
 
     <div id="messagesGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-      <!-- Dynamic Message Cards Inserted Here -->
+      <!-- 동적으로 카드들이 실시간 반영됩니다 -->
     </div>
 
-    <!-- Empty state when no cards match -->
     <div id="emptyState" class="hidden text-center py-16 bg-white/70 rounded-3xl border border-rose-100 p-8 mt-4 shadow-sm">
       <div class="w-16 h-16 rounded-full bg-rose-50 text-blush-400 flex items-center justify-center mx-auto text-2xl mb-3">
         <i class="fa-regular fa-envelope-open"></i>
@@ -467,17 +328,16 @@
     </div>
   </main>
 
-  <!-- Floating Mobile Write Action Button -->
   <div class="fixed bottom-6 right-6 z-40 sm:hidden">
     <button onclick="openWriteModal()" class="w-14 h-14 rounded-full bg-blush-400 hover:bg-blush-500 text-white shadow-2xl flex items-center justify-center text-xl transition-transform active:scale-90">
       <i class="fa-solid fa-pen-nib"></i>
     </button>
   </div>
 
+  <!-- 편지 작성 모달 -->
   <div id="writeModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
     <div class="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-rose-100 flex flex-col max-h-[92vh]">
       
-      <!-- Modal Header -->
       <div class="px-6 py-4 border-b border-stone-100 flex items-center justify-between bg-gradient-to-r from-rose-50 to-champagne-50">
         <div class="flex items-center space-x-2">
           <span class="w-8 h-8 rounded-full bg-blush-100 text-blush-500 flex items-center justify-center text-sm">
@@ -493,11 +353,8 @@
         </button>
       </div>
 
-      <!-- Modal Body (Form) -->
       <form id="messageForm" onsubmit="handleMessageSubmit(event)" class="p-6 overflow-y-auto space-y-4">
-        
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <!-- Sender Name -->
           <div>
             <label class="block text-xs font-semibold text-stone-700 mb-1.5">
               보내는 사람 (이름 / 닉네임) <span class="text-blush-400">*</span>
@@ -512,7 +369,6 @@
             />
           </div>
 
-          <!-- Category Selection -->
           <div>
             <label class="block text-xs font-semibold text-stone-700 mb-1.5">
               주인공과의 관계 <span class="text-blush-400">*</span>
@@ -526,7 +382,6 @@
           </div>
         </div>
 
-        <!-- Stationery Theme Selection -->
         <div>
           <label class="block text-xs font-semibold text-stone-700 mb-1.5">편지지 색상 테마</label>
           <div class="grid grid-cols-5 gap-2">
@@ -548,7 +403,6 @@
           </div>
         </div>
 
-        <!-- Sticker Selection -->
         <div>
           <label class="block text-xs font-semibold text-stone-700 mb-1.5">포인트 이모지 스티커</label>
           <div class="flex items-center space-x-2 overflow-x-auto pb-1">
@@ -583,7 +437,6 @@
           </div>
         </div>
 
-        <!-- Message Content -->
         <div>
           <div class="flex items-center justify-between mb-1.5">
             <label class="text-xs font-semibold text-stone-700">
@@ -597,13 +450,13 @@
             rows="5" 
             maxlength="400" 
             oninput="updateCharCount(this)"
-            placeholder="선지님의 40번째 생일을 축하하는 다정한 마음과 응원의 메시지를 자유롭게 남겨주세요." 
+            placeholder="선지님의 41번째 생일을 축하하는 다정한 마음과 응원의 메시지를 자유롭게 남겨주세요." 
             class="w-full px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blush-300 transition-all leading-relaxed resize-none"
           ></textarea>
         </div>
 
         <div class="pt-2">
-          <button type="submit" class="w-full py-3 rounded-xl bg-plum-800 hover:bg-plum-900 text-white font-semibold text-xs shadow-md hover:shadow-lg transition-all flex items-center justify-center space-x-2">
+          <button type="submit" id="submitBtn" class="w-full py-3 rounded-xl bg-plum-800 hover:bg-plum-900 text-white font-semibold text-xs shadow-md hover:shadow-lg transition-all flex items-center justify-center space-x-2">
             <i class="fa-solid fa-paper-plane"></i>
             <span>축하 편지 등록하기</span>
           </button>
@@ -612,6 +465,7 @@
     </div>
   </div>
 
+  <!-- 편지 읽기 모달 -->
   <div id="readModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
     <div id="readModalCard" class="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-rose-100 flex flex-col p-6 sm:p-8 transition-all">
       <div class="flex items-center justify-between mb-4">
@@ -650,7 +504,7 @@
     </div>
   </div>
 
-  <!-- 삭제 확인 모달 (안전한 커스텀 UI) -->
+  <!-- 삭제 확인 모달 -->
   <div id="deleteModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
     <div class="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden border border-rose-100 flex flex-col p-6 text-center animate-fade-in">
       <div class="w-12 h-12 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center mx-auto text-xl mb-3 shadow-xs">
@@ -671,6 +525,7 @@
     </div>
   </div>
 
+  <!-- 프로필 수정 모달 -->
   <div id="profileModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
     <div class="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden border border-rose-100 flex flex-col">
       <div class="px-6 py-4 border-b border-stone-100 flex items-center justify-between bg-gradient-to-r from-rose-50 to-champagne-50">
@@ -687,54 +542,47 @@
 
       <form id="profileForm" onsubmit="handleProfileSave(event)" class="p-6 space-y-4">
         <div>
-          <label class="block text-xs font-semibold text-stone-700 mb-1.5">
-            주인공 이름 <span class="text-blush-400">*</span>
-          </label>
-          <input 
-            type="text" 
-            id="inputRecipientName" 
-            value="장선지" 
-            required 
-            maxlength="20" 
-            class="w-full px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blush-300"
-          />
+          <label class="block text-xs font-semibold text-stone-700 mb-1.5">주인공 이름 *</label>
+          <input type="text" id="inputRecipientName" value="장선지" required maxlength="20" class="w-full px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blush-300"/>
         </div>
-
         <div>
-          <label class="block text-xs font-semibold text-stone-700 mb-1.5">
-            생일 나이 / 회차 <span class="text-blush-400">*</span>
-          </label>
-          <input 
-            type="number" 
-            id="inputRecipientAge" 
-            value="41" 
-            min="1" 
-            max="120" 
-            required 
-            class="w-full px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blush-300"
-          />
+          <label class="block text-xs font-semibold text-stone-700 mb-1.5">생일 나이 / 회차 *</label>
+          <input type="number" id="inputRecipientAge" value="41" min="1" max="120" required class="w-full px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blush-300"/>
         </div>
-
         <div>
-          <label class="block text-xs font-semibold text-stone-700 mb-1.5">
-            축하 슬로건 / 소개글
-          </label>
-          <textarea 
-            id="inputRecipientDesc" 
-            rows="3" 
-            class="w-full px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blush-300 resize-none leading-relaxed"
-          >성숙한 지혜와 따뜻한 품격으로 언제나 주위를 밝혀주시는 선지님. 더욱 찬란하고 아름답게 펼쳐질 41번째 생일과 앞으로의 모든 여정을 온 마음을 다해 응원합니다.</textarea>
+          <label class="block text-xs font-semibold text-stone-700 mb-1.5">축하 슬로건 / 소개글</label>
+          <textarea id="inputRecipientDesc" rows="3" class="w-full px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blush-300 resize-none leading-relaxed">성숙한 지혜와 따뜻한 품격으로 언제나 주위를 밝혀주시는 선지님. 더욱 찬란하고 아름답게 펼쳐질 41번째 생일과 앞으로의 모든 여정을 온 마음을 다해 응원합니다.</textarea>
         </div>
-
         <div class="pt-2">
-          <button type="submit" class="w-full py-2.5 rounded-xl bg-plum-800 hover:bg-plum-900 text-white font-semibold text-xs shadow-md transition-all">
-            변경 사항 적용하기
-          </button>
+          <button type="submit" class="w-full py-2.5 rounded-xl bg-plum-800 hover:bg-plum-900 text-white font-semibold text-xs shadow-md transition-all">변경 사항 적용하기</button>
         </div>
       </form>
     </div>
   </div>
 
+  <!-- DB 설정 안내 모달 -->
+  <div id="configModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+    <div class="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden border border-rose-100 flex flex-col p-6">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-bold text-plum-900">전 세계 실시간 동기화 설정 안내</h3>
+        <button onclick="closeConfigModal()" class="text-stone-400 hover:text-stone-700"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <p class="text-xs text-stone-600 leading-relaxed mb-4">
+        GitHub Pages는 정적 사이트이므로 여러 사람이 쓴 글을 실시간으로 모으려면 <strong>무료 Google Firebase</strong> 키가 필요합니다.<br/>
+        코드 상단의 <code>firebaseConfig</code> 변수에 발급받은 키를 넣어주시면 즉시 초록색 불이 켜지며 실시간 동기화가 시작됩니다!
+      </p>
+      <div class="bg-stone-50 p-3 rounded-xl border border-stone-200 text-[11px] text-stone-600 space-y-1 mb-4">
+        <div>1. <strong>console.firebase.google.com</strong> 접속 (무료)</div>
+        <div>2. 프로젝트 생성 후 <strong>Firestore Database</strong> (테스트 모드) 만들기</div>
+        <div>3. 웹 앱 추가 후 나오는 설정 코드를 <strong>코드 428번째 줄</strong>에 붙여넣기</div>
+      </div>
+      <button onclick="closeConfigModal()" class="w-full py-2 bg-plum-800 text-white rounded-xl text-xs font-semibold">
+        확인했습니다
+      </button>
+    </div>
+  </div>
+
+  <!-- 토스트 알림 -->
   <div id="toast" class="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 pointer-events-none transition-all duration-300 opacity-0 translate-y-3">
     <div class="px-5 py-2.5 rounded-full bg-plum-900 text-white text-xs font-medium shadow-xl flex items-center space-x-2 border border-rose-200/20">
       <span id="toastIcon">✨</span>
@@ -743,7 +591,42 @@
   </div>
 
   <script>
-    // State management for Recipient & UI
+    /* ==========================================================================
+       [1] 파이어베이스(Firebase) 클라우드 데이터베이스 설정
+       발급받으신 실제 Firebase 설정 정보가 연동되었습니다.
+       ========================================================================== */
+    const firebaseConfig = {
+      apiKey: "AIzaSyCkqytY4LNx1dMO3Gl-Z65PZy4q058ga2w",
+      authDomain: "jysb-e837e.firebaseapp.com",
+      databaseURL: "https://jysb-e837e-default-rtdb.firebaseio.com",
+      projectId: "jysb-e837e",
+      storageBucket: "jysb-e837e.firebasestorage.app",
+      messagingSenderId: "23001228972",
+      appId: "1:23001228972:web:577e38d8cab76e56e3e109",
+      measurementId: "G-PGQSGJK9N3"
+    };
+
+    let isCloudConnected = false;
+    let db = null;
+    let auth = null;
+    let messagesCollection = null;
+
+    // 파이어베이스 초기화 시도
+    if (firebaseConfig.apiKey && firebaseConfig.projectId) {
+      try {
+        if (!firebase.apps.length) {
+          firebase.initializeApp(firebaseConfig);
+        }
+        db = firebase.firestore();
+        auth = firebase.auth ? firebase.auth() : null;
+        messagesCollection = db.collection('sunji-41st-birthday-messages');
+        isCloudConnected = true;
+      } catch (e) {
+        console.warn('Firebase init error:', e);
+      }
+    }
+
+    // 전역 상태 변수
     let recipientInfo = {
       name: '장선지',
       age: 41,
@@ -758,41 +641,81 @@
     let isAudioPlaying = false;
     let audioSynth = null;
     let activeReadingMessageId = null;
-    let pendingDeleteTarget = null; // 'all' 또는 message id
+    let pendingDeleteTarget = null;
+    let messages = [];
 
-    // Empty initial messages so real guests can write fresh ones
-    const initialMessages = [];
+    // 클라우드 동기화 리스너 등록
+    async function initDataSync() {
+      const statusText = document.getElementById('statusText');
+      const statusDot = document.getElementById('statusDot');
+      const banner = document.getElementById('setupAlertBanner');
 
-    let messages = [...initialMessages];
+      if (isCloudConnected && messagesCollection) {
+        statusText.innerText = '실시간 클라우드 연결됨';
+        statusDot.className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
+        banner.classList.add('hidden');
 
-    // Cloud Data Sync Handler
-    window.updateMessagesFromCloud = function(cloudMessages) {
-      if (Array.isArray(cloudMessages)) {
-        // Retain local liked status if any
-        const likedIds = new Set(messages.filter(m => m.liked).map(m => m.id));
-        messages = cloudMessages.map(m => ({
-          ...m,
-          liked: likedIds.has(m.id)
-        }));
+        // 익명 로그인 수행 (Firestore 보안 규칙 접근 보장)
+        try {
+          if (auth) {
+            await auth.signInAnonymously();
+          }
+        } catch (authErr) {
+          console.warn("익명 인증:", authErr);
+        }
+
+        // Firestore 실시간 리스너 (색인 오류 없이 클라이언트 메모리에서 최신순 정렬)
+        messagesCollection.onSnapshot((snapshot) => {
+          messages = [];
+          snapshot.forEach((doc) => {
+            const data = doc.data();
+            messages.push({
+              id: doc.id,
+              ...data
+            });
+          });
+          renderMessages();
+        }, (err) => {
+          console.error("Firestore 실시간 수신 오류:", err);
+          statusText.innerText = '클라우드 규칙 확인 필요';
+          statusDot.className = 'w-2 h-2 rounded-full bg-amber-500';
+        });
+      } else {
+        // 로컬 스토리지 모드 (키가 등록되지 않았을 때의 안전한 폴백)
+        statusText.innerText = '로컬 임시 저장 모드';
+        statusDot.className = 'w-2 h-2 rounded-full bg-amber-400';
+        banner.classList.remove('hidden');
+
+        const savedLocal = localStorage.getItem('local_sunji_messages');
+        if (savedLocal) {
+          try {
+            messages = JSON.parse(savedLocal);
+          } catch(e) {
+            messages = [];
+          }
+        }
         renderMessages();
       }
-    };
+    }
 
-    // Helper: Escape HTML to avoid XSS
+    function saveLocalFallback() {
+      if (!isCloudConnected) {
+        localStorage.setItem('local_sunji_messages', JSON.stringify(messages));
+      }
+    }
+
     function escapeHtml(str) {
       const div = document.createElement('div');
-      div.textContent = str;
+      div.textContent = str || '';
       return div.innerHTML;
     }
 
-    // Format current date-time string
     function getNowFormatted() {
       const d = new Date();
       const pad = (n) => String(n).padStart(2, '0');
       return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     }
 
-    // Toast notification
     function showToast(text, icon = '✨') {
       const toast = document.getElementById('toast');
       const toastText = document.getElementById('toastText');
@@ -815,25 +738,23 @@
       const emptyState = document.getElementById('emptyState');
       grid.innerHTML = '';
 
-      // Filter by category
       let filtered = messages.filter(m => {
         if (currentCategory === 'all') return true;
         return m.category === currentCategory;
       });
 
-      // Filter by search query
       if (searchQuery.trim() !== '') {
         const q = searchQuery.toLowerCase();
         filtered = filtered.filter(m => 
-          m.sender.toLowerCase().includes(q) || m.content.toLowerCase().includes(q)
+          (m.sender && m.sender.toLowerCase().includes(q)) || 
+          (m.content && m.content.toLowerCase().includes(q))
         );
       }
 
-      // Sort
       if (sortMode === 'latest') {
-        filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        filtered.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
       } else if (sortMode === 'likes') {
-        filtered.sort((a, b) => b.likes - a.likes);
+        filtered.sort((a, b) => (b.likes || 0) - (a.likes || 0));
       }
 
       if (filtered.length === 0) {
@@ -842,11 +763,10 @@
         emptyState.classList.add('hidden');
         filtered.forEach(msg => {
           const card = document.createElement('div');
-          card.className = `theme-${msg.theme} rounded-2xl p-5 shadow-xs hover:shadow-md transition-all duration-300 transform hover:-translate-y-1 flex flex-col justify-between cursor-pointer border`;
+          card.className = `theme-${msg.theme || 'blush'} rounded-2xl p-5 shadow-xs hover:shadow-md transition-all duration-300 transform hover:-translate-y-1 flex flex-col justify-between cursor-pointer border`;
           
           card.onclick = (e) => {
-            // Prevent modal opening when clicking like button
-            if (e.target.closest('.like-btn')) return;
+            if (e.target.closest('.like-btn') || e.target.closest('.delete-btn')) return;
             openReadModal(msg.id);
           };
 
@@ -854,10 +774,10 @@
             <div>
               <div class="flex items-center justify-between mb-3">
                 <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white/80 text-stone-600 border border-stone-200 shadow-2xs">
-                  ${escapeHtml(msg.category)}
+                  ${escapeHtml(msg.category || '지인')}
                 </span>
                 <div class="flex items-center space-x-2">
-                  <span class="text-xl select-none">${msg.sticker}</span>
+                  <span class="text-xl select-none">${msg.sticker || '💐'}</span>
                   <button onclick="confirmDeleteSingle('${msg.id}')" class="delete-btn opacity-60 hover:opacity-100 hover:text-rose-500 text-stone-400 p-1 transition-all" title="편지 삭제">
                     <i class="fa-regular fa-trash-can text-xs"></i>
                   </button>
@@ -871,11 +791,11 @@
             <div class="pt-3 border-t border-stone-200/50 flex items-center justify-between text-[11px] text-stone-500">
               <div class="flex flex-col">
                 <span class="font-bold text-plum-900">${escapeHtml(msg.sender)}</span>
-                <span class="text-[10px] text-stone-400">${msg.createdAt.split(' ')[0]}</span>
+                <span class="text-[10px] text-stone-400">${msg.createdAt ? msg.createdAt.split(' ')[0] : ''}</span>
               </div>
               <button onclick="toggleLike('${msg.id}')" class="like-btn flex items-center space-x-1 px-2.5 py-1 rounded-full bg-white/80 hover:bg-white text-rose-500 border border-rose-200 transition-all ${msg.liked ? 'bg-rose-50 ring-1 ring-rose-300' : ''}">
                 <i class="${msg.liked ? 'fa-solid' : 'fa-regular'} fa-heart text-xs text-blush-400"></i>
-                <span class="font-bold text-[11px] text-stone-600">${msg.likes}</span>
+                <span class="font-bold text-[11px] text-stone-600">${msg.likes || 0}</span>
               </button>
             </div>
           `;
@@ -888,14 +808,17 @@
 
     function updateMetrics() {
       const totalMessages = messages.length;
-      const totalLikes = messages.reduce((acc, cur) => acc + cur.likes, 0);
+      const totalLikes = messages.reduce((acc, cur) => acc + (cur.likes || 0), 0);
 
       document.getElementById('totalMessagesCount').innerText = totalMessages;
       document.getElementById('totalLikesCount').innerText = totalLikes;
       document.getElementById('count-all').innerText = totalMessages;
     }
 
-    // Profile updates and dynamic text binding
+    function updateCharCount(textarea) {
+      document.getElementById('charCount').innerText = `${textarea.value.length} / 400자`;
+    }
+
     function openProfileModal() {
       document.getElementById('inputRecipientName').value = recipientInfo.name;
       document.getElementById('inputRecipientAge').value = recipientInfo.age;
@@ -909,16 +832,23 @@
       document.body.style.overflow = '';
     }
 
+    function openConfigModal() {
+      document.getElementById('configModal').classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeConfigModal() {
+      document.getElementById('configModal').classList.add('hidden');
+      document.body.style.overflow = '';
+    }
+
     function handleProfileSave(e) {
       e.preventDefault();
       const name = document.getElementById('inputRecipientName').value.trim();
-      const age = parseInt(document.getElementById('inputRecipientAge').value, 10) || 40;
+      const age = parseInt(document.getElementById('inputRecipientAge').value, 10) || 41;
       const desc = document.getElementById('inputRecipientDesc').value.trim();
 
-      if (!name) {
-        showToast('이름을 입력해주세요.', '⚠️');
-        return;
-      }
+      if (!name) return;
 
       recipientInfo.name = name;
       recipientInfo.age = age;
@@ -931,20 +861,15 @@
     }
 
     function applyRecipientInfo() {
-      // Header
       const headerTitle = document.getElementById('headerMainTitle');
       if (headerTitle) {
         headerTitle.innerText = `${recipientInfo.name}님의 ${recipientInfo.age}번째 생일 롤링페이퍼`;
       }
       
-      // Hero
       const ageDecade = Math.floor(recipientInfo.age / 10) * 10;
       const heroBadge = document.getElementById('heroBadgeText');
-      if (heroBadge) {
-        heroBadge.innerText = `✨ The Brilliant ${ageDecade}s`;
-      }
+      if (heroBadge) heroBadge.innerText = `✨ The Brilliant ${ageDecade}s`;
 
-      // Suffix calculation for English badge (e.g. 41st, 42nd, 43rd, 40th)
       const getOrdinal = (n) => {
         const s = ["th", "st", "nd", "rd"];
         const v = n % 100;
@@ -952,14 +877,10 @@
       };
 
       const cakeAgeBadge = document.getElementById('cakeAgeBadge');
-      if (cakeAgeBadge) {
-        cakeAgeBadge.innerText = `${getOrdinal(recipientInfo.age)} Anniversary`;
-      }
+      if (cakeAgeBadge) cakeAgeBadge.innerText = `${getOrdinal(recipientInfo.age)} Anniversary`;
 
       const cakeTierText = document.getElementById('cakeTierText');
-      if (cakeTierText) {
-        cakeTierText.innerText = `HAPPY ${getOrdinal(recipientInfo.age).toUpperCase()}`;
-      }
+      if (cakeTierText) cakeTierText.innerText = `HAPPY ${getOrdinal(recipientInfo.age).toUpperCase()}`;
 
       const heroTitle = document.getElementById('heroTitleText');
       if (heroTitle) {
@@ -967,14 +888,10 @@
       }
 
       const heroDesc = document.getElementById('heroDescText');
-      if (heroDesc) {
-        heroDesc.innerText = recipientInfo.description;
-      }
+      if (heroDesc) heroDesc.innerText = recipientInfo.description;
 
       const emptyDesc = document.getElementById('emptyStateDesc');
-      if (emptyDesc) {
-        emptyDesc.innerText = `${recipientInfo.name}님을 위한 첫 번째 따뜻한 축하 편지를 남겨보세요!`;
-      }
+      if (emptyDesc) emptyDesc.innerText = `${recipientInfo.name}님을 위한 첫 번째 따뜻한 축하 편지를 남겨보세요!`;
 
       const placeholder = document.getElementById('messageContent');
       if (placeholder) {
@@ -1008,25 +925,35 @@
       renderMessages();
     }
 
-    function toggleLike(id) {
+    async function toggleLike(id) {
       const msg = messages.find(m => m.id === id);
       if (!msg) return;
-      if (msg.liked) {
-        msg.likes = Math.max(0, msg.likes - 1);
-        msg.liked = false;
-      } else {
-        msg.likes++;
-        msg.liked = true;
+
+      const newLikes = msg.liked ? Math.max(0, (msg.likes || 0) - 1) : (msg.likes || 0) + 1;
+      const newLikedState = !msg.liked;
+
+      // 즉시 UI 반영
+      msg.likes = newLikes;
+      msg.liked = newLikedState;
+      if (newLikedState) {
         showToast('하트를 전했습니다! ❤️', '💖');
-        // Sync like increment to cloud if connected
-        if (typeof window.toggleLikeInCloud === 'function') {
-          window.toggleLikeInCloud(id);
-        }
       }
       renderMessages();
+
+      // 클라우드 동기화
+      if (isCloudConnected && messagesCollection) {
+        try {
+          await messagesCollection.doc(id).update({
+            likes: newLikes
+          });
+        } catch (e) {
+          console.warn("Like update error:", e);
+        }
+      } else {
+        saveLocalFallback();
+      }
     }
 
-    // Write Modal Handling
     function openWriteModal() {
       document.getElementById('messageForm').reset();
       document.getElementById('charCount').innerText = '0 / 400자';
@@ -1069,51 +996,58 @@
         return;
       }
 
-      const newMsg = {
-        id: 'msg-' + Date.now(),
+      const submitBtn = document.getElementById('submitBtn');
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i><span>등록 중...</span>';
+
+      const newMsgData = {
         sender,
         category,
         theme: selectedTheme,
         sticker,
         content,
         likes: 0,
-        liked: false,
-        createdAt: getNowFormatted()
+        createdAt: getNowFormatted(),
+        timestamp: Date.now()
       };
 
-      // Try saving to cloud realtime database
-      if (typeof window.saveMessageToCloud === 'function') {
-        const saved = await window.saveMessageToCloud(newMsg);
-        if (!saved) {
-          // Fallback to local memory if offline
-          messages.unshift(newMsg);
+      try {
+        if (isCloudConnected && messagesCollection) {
+          await messagesCollection.add(newMsgData);
+        } else {
+          // 로컬 모드
+          const localId = 'msg-' + Date.now();
+          messages.unshift({ id: localId, ...newMsgData });
+          saveLocalFallback();
           renderMessages();
         }
-      } else {
-        messages.unshift(newMsg);
-        renderMessages();
-      }
 
-      closeWriteModal();
-      showToast(`축하 메시지가 등록되었습니다!`, '💌');
-      triggerConfettiSpray();
+        closeWriteModal();
+        showToast(`축하 메시지가 등록되었습니다!`, '💌');
+        triggerConfettiSpray();
+      } catch (err) {
+        console.error("Save message error:", err);
+        showToast('저장 중 문제가 발생했습니다.', '⚠️');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i><span>축하 편지 등록하기</span>';
+      }
     }
 
-    // Read Modal Handling
     function openReadModal(id) {
       const msg = messages.find(m => m.id === id);
       if (!msg) return;
       activeReadingMessageId = id;
 
       const card = document.getElementById('readModalCard');
-      card.className = `theme-${msg.theme} relative w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden border p-6 sm:p-8 flex flex-col`;
+      card.className = `theme-${msg.theme || 'blush'} relative w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden border p-6 sm:p-8 flex flex-col`;
 
       document.getElementById('readModalCategory').innerText = msg.category;
-      document.getElementById('readModalSticker').innerText = msg.sticker;
+      document.getElementById('readModalSticker').innerText = msg.sticker || '💐';
       document.getElementById('readModalContent').innerText = msg.content;
       document.getElementById('readModalSender').innerText = msg.sender;
       document.getElementById('readModalDate').innerText = msg.createdAt;
-      document.getElementById('readModalLikesCount').innerText = msg.likes;
+      document.getElementById('readModalLikesCount').innerText = msg.likes || 0;
 
       document.getElementById('readModal').classList.remove('hidden');
       document.body.style.overflow = 'hidden';
@@ -1125,7 +1059,6 @@
       activeReadingMessageId = null;
     }
 
-    // 삭제 모달 처리 로직
     function confirmDeleteSingle(id) {
       pendingDeleteTarget = id;
       document.getElementById('deleteModalTitle').innerText = '축하 편지를 삭제할까요?';
@@ -1142,7 +1075,7 @@
       }
       pendingDeleteTarget = 'all';
       document.getElementById('deleteModalTitle').innerText = '모든 축하 편지를 전체 삭제할까요?';
-      document.getElementById('deleteModalDesc').innerText = `현재 등록된 총 ${messages.length}개의 모든 편지가 영구히 삭제됩니다. 정말 삭제하시겠습니까?`;
+      document.getElementById('deleteModalDesc').innerText = `현재 등록된 총 ${messages.length}개의 모든 편지가 삭제됩니다. 정말 삭제하시겠습니까?`;
       document.getElementById('deleteConfirmBtn').innerText = '전체 삭제하기';
       document.getElementById('deleteModal').classList.remove('hidden');
       document.body.style.overflow = 'hidden';
@@ -1164,25 +1097,42 @@
     async function executeDeleteAction() {
       if (!pendingDeleteTarget) return;
 
-      if (pendingDeleteTarget === 'all') {
-        // 전체 삭제 실행
-        if (typeof window.deleteAllMessagesFromCloud === 'function') {
-          await window.deleteAllMessagesFromCloud();
+      const deleteBtn = document.getElementById('deleteConfirmBtn');
+      deleteBtn.disabled = true;
+      deleteBtn.innerText = '삭제 중...';
+
+      try {
+        if (pendingDeleteTarget === 'all') {
+          if (isCloudConnected && messagesCollection) {
+            const batch = db.batch();
+            const snapshot = await messagesCollection.get();
+            snapshot.forEach(doc => {
+              batch.delete(doc.ref);
+            });
+            await batch.commit();
+          } else {
+            messages = [];
+            saveLocalFallback();
+            renderMessages();
+          }
+          showToast('모든 축하 편지가 삭제되었습니다.', '🗑️');
+        } else {
+          const targetId = pendingDeleteTarget;
+          if (isCloudConnected && messagesCollection) {
+            await messagesCollection.doc(targetId).delete();
+          } else {
+            messages = messages.filter(m => m.id !== targetId);
+            saveLocalFallback();
+            renderMessages();
+          }
+          showToast('축하 편지가 삭제되었습니다.', '🗑️');
         }
-        messages = [];
-        renderMessages();
+      } catch (err) {
+        console.error("Delete error:", err);
+        showToast('삭제 중 오류가 발생했습니다.', '⚠️');
+      } finally {
+        deleteBtn.disabled = false;
         closeDeleteModal();
-        showToast('모든 축하 편지가 삭제되었습니다.', '🗑️');
-      } else {
-        // 개별 메시지 삭제 실행
-        const targetId = pendingDeleteTarget;
-        if (typeof window.deleteMessageFromCloud === 'function') {
-          await window.deleteMessageFromCloud(targetId);
-        }
-        messages = messages.filter(m => m.id !== targetId);
-        renderMessages();
-        closeDeleteModal();
-        showToast('축하 편지가 삭제되었습니다.', '🗑️');
       }
     }
 
@@ -1201,7 +1151,6 @@
       const btnText = document.getElementById('candleBtnText');
 
       if (isCandleLit) {
-        // Blow out
         flame.style.opacity = '0';
         flame.style.transform = 'scale(0.2)';
         statusText.innerHTML = '✨ <span class="text-blush-500">소원이 하늘에 닿았습니다!</span>';
@@ -1212,7 +1161,6 @@
         triggerConfettiSpray();
         playChime();
       } else {
-        // Relight
         flame.style.opacity = '1';
         flame.style.transform = 'scale(1)';
         statusText.innerHTML = '🔥 촛불이 켜져 있어요!';
@@ -1222,7 +1170,6 @@
       }
     }
 
-    // Confetti Cannon
     function triggerConfettiSpray() {
       if (typeof confetti === 'function') {
         confetti({
@@ -1256,7 +1203,6 @@
             audioSynth = new Tone.PolySynth(Tone.Synth).toDestination();
             audioSynth.volume.value = -14;
           }
-          // Play Happy Birthday opening chime melody
           const notes = [
             { note: 'G4', time: 0, dur: '8n' },
             { note: 'G4', time: 0.3, dur: '8n' },
@@ -1290,10 +1236,11 @@
         closeReadModal();
         closeProfileModal();
         closeDeleteModal();
+        closeConfigModal();
       }
     });
 
-    ['writeModal', 'readModal', 'profileModal', 'deleteModal'].forEach(id => {
+    ['writeModal', 'readModal', 'profileModal', 'deleteModal', 'configModal'].forEach(id => {
       const modal = document.getElementById(id);
       if (modal) {
         modal.addEventListener('click', (e) => {
@@ -1306,10 +1253,9 @@
       }
     });
 
-    // Window load init
     window.onload = function () {
       applyRecipientInfo();
-      renderMessages();
+      initDataSync();
     };
   </script>
 </body>
